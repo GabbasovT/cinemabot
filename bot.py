@@ -6,6 +6,8 @@ from aiogram.types import Message
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from config import BOT_TOKEN, SSPOISK_API_KEY, DB_URL
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -37,9 +39,21 @@ async def init_db():
         """)
 
 
+menu_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="/history"), KeyboardButton(text="/stats")],
+        [KeyboardButton(text="/help")]
+    ],
+    resize_keyboard=True
+)
+
+
 @dp.message(F.text == "/start")
 async def start_handler(message: Message):
-    await message.answer("Просто отправь название фильма, и я найду его на Кинопоиске!")
+    await message.answer(
+        "Просто отправь название фильма, и я найду его на Кинопоиске!",
+        reply_markup=menu_kb
+    )
 
 
 @dp.message(F.text == "/help")
@@ -47,19 +61,53 @@ async def help_handler(message: Message):
     await message.answer("/start — начать\n/help — помощь\n/history — история\n/stats — статистика")
 
 
-@dp.message(F.text == "/history")
-async def history_handler(message: Message):
-    user_id = message.from_user.id
+@dp.callback_query(F.data.startswith("history:"))
+async def history_page_callback(call: CallbackQuery):
+    page = int(call.data.split(":")[1])
+    await call.message.delete()
+    await send_history_page(call.from_user.id, call.message.chat.id, page)
+
+
+async def send_history_page(user_id: int, chat_id: int, page: int):
+    limit = 10
+    offset = page * limit
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT film_title, timestamp FROM search_history
-            WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 10
+            WHERE user_id = $1 ORDER BY timestamp DESC
+            LIMIT $2 OFFSET $3
+        """, user_id, limit, offset)
+        total = await conn.fetchval("""
+            SELECT COUNT(*) FROM search_history WHERE user_id = $1
         """, user_id)
+
     if not rows:
-        await message.answer("История пуста.")
-    else:
-        text = "\n".join([f"• {r['film_title']} ({r['timestamp']})" for r in rows])
-        await message.answer(f"🕓 История:\n{text}")
+        await bot.send_message(chat_id, "История пуста.")
+        return
+
+    text = "\n".join([f"• {r['film_title']} ({r['timestamp'].strftime('%Y-%m-%d %H:%M')})" for r in rows])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton("◀️ Назад", callback_data=f"history:{page - 1}"),
+            InlineKeyboardButton("Вперёд ▶️", callback_data=f"history:{page + 1}")
+        ]
+    ])
+
+    buttons = []
+    if page > 0:
+        buttons.append(InlineKeyboardButton("◀️ Назад", callback_data=f"history:{page - 1}"))
+    if (offset + limit) < total:
+        buttons.append(InlineKeyboardButton("Вперёд ▶️", callback_data=f"history:{page + 1}"))
+
+    keyboard.inline_keyboard = [buttons] if buttons else []
+
+    await bot.send_message(chat_id, f"🕓 История (стр. {page + 1}):\n{text}", reply_markup=keyboard)
+
+
+@dp.message(F.text == "/history")
+async def history_handler(message: Message):
+    await send_history_page(message.from_user.id, message.chat.id, page=0)
 
 
 @dp.message(F.text == "/stats")
