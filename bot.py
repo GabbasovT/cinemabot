@@ -90,7 +90,7 @@ async def find_movie(message: Message):
                 year = movie.get("year", "Неизвестно")
                 kp_id = movie.get("filmId")
                 poster = movie.get("posterUrlPreview")
-                msg = f"🎬 <b>{title}</b> ({year})\n👉 https://www.kinopoisk.ru/film/{kp_id}/"
+                msg = f"🎬 <b>{title}</b> ({year})\n👉 https://www.sspoisk.ru/film/{kp_id}/"
 
                 user_id = message.from_user.id
                 async with db_pool.acquire() as conn:
