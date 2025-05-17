@@ -12,6 +12,7 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 dp = Dispatcher(storage=MemoryStorage())
 db_pool = None
 
+
 async def init_db():
     global db_pool
     db_pool = await asyncpg.create_pool(DB_URL)
@@ -35,13 +36,16 @@ async def init_db():
             );
         """)
 
+
 @dp.message(F.text == "/start")
 async def start_handler(message: Message):
     await message.answer("Просто отправь название фильма, и я найду его на Кинопоиске!")
 
+
 @dp.message(F.text == "/help")
 async def help_handler(message: Message):
     await message.answer("/start — начать\n/help — помощь\n/history — история\n/stats — статистика")
+
 
 @dp.message(F.text == "/history")
 async def history_handler(message: Message):
@@ -57,6 +61,7 @@ async def history_handler(message: Message):
         text = "\n".join([f"• {r['film_title']} ({r['timestamp']})" for r in rows])
         await message.answer(f"🕓 История:\n{text}")
 
+
 @dp.message(F.text == "/stats")
 async def stats_handler(message: Message):
     user_id = message.from_user.id
@@ -71,17 +76,18 @@ async def stats_handler(message: Message):
         text = "\n".join([f"• {r['film_title']} — {r['count']} раз(а)" for r in rows])
         await message.answer(f"📊 Статистика:\n{text}")
 
+
 @dp.message()
 async def find_movie(message: Message):
     query = message.text.strip()
-    url = f"https://kinopoiskapiunofficial.tech/api/v2.1/films/search-by-keyword?keyword={query}"
+    search_url = f"https://kinopoiskapiunofficial.tech/api/v2.1/films/search-by-keyword?keyword={query}"
     headers = {
         "X-API-KEY": SSPOISK_API_KEY,
         "Content-Type": "application/json"
     }
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
+        async with session.get(search_url, headers=headers) as response:
             data = await response.json()
             films = data.get("films", [])
             if films:
@@ -90,7 +96,17 @@ async def find_movie(message: Message):
                 year = movie.get("year", "Неизвестно")
                 kp_id = movie.get("filmId")
                 poster = movie.get("posterUrlPreview")
-                msg = f"🎬 <b>{title}</b> ({year})\n👉 https://www.sspoisk.ru/film/{kp_id}/"
+
+                desc_url = f"https://kinopoiskapiunofficial.tech/api/v2.2/films/{kp_id}"
+                async with session.get(desc_url, headers=headers) as desc_response:
+                    desc_data = await desc_response.json()
+                    description = desc_data.get("description", "Описание недоступно.")
+
+                msg = (
+                    f"🎬 <b>{title}</b> ({year})\n"
+                    f"📝 {description}\n"
+                    f"👉 https://www.sspoisk.ru/film/{kp_id}/"
+                )
 
                 user_id = message.from_user.id
                 async with db_pool.acquire() as conn:
@@ -111,9 +127,11 @@ async def find_movie(message: Message):
             else:
                 await message.answer("Фильм не найден 😕")
 
+
 async def main():
     await init_db()
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
