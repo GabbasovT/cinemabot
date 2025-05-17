@@ -1,20 +1,18 @@
-version: '3.9'
-
 services:
   db:
     image: postgres:15
-    restart: always
     environment:
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+      POSTGRES_DB: cinemabot
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   bot:
     build: .
-    restart: always
-    env_file: .env
     depends_on:
-      - db
-
-volumes:
-  pgdata:
+      db:
+        condition: service_healthy
